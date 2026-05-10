@@ -44,6 +44,8 @@ async function makeOutboundCall(lead, properties = []) {
       companyName:      COMPANY_NAME,
     },
     model: {
+      provider: 'openai',
+      model:    'gpt-4o-mini',
       messages: [
         {
           role: 'system',
