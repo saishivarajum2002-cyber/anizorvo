@@ -7305,8 +7305,9 @@
           if (stage !== 'Closed') globalVal += dealVal;
           colValue += dealVal;
 
-          const sentiment = l.score >= 80 ? 'HIGH' : l.score >= 50 ? 'WARM' : 'COLD';
-          const sentClass = l.score >= 80 ? 'sent-high' : l.score >= 50 ? 'sent-med' : 'sent-low';
+          const displayScore = l.score !== undefined && l.score !== null ? Math.round(l.score) : 50;
+          const sentiment = displayScore >= 80 ? 'HIGH' : displayScore >= 50 ? 'WARM' : 'COLD';
+          const sentClass = displayScore >= 80 ? 'sent-high' : displayScore >= 50 ? 'sent-med' : 'sent-low';
 
           return `<div class="pipe-card" draggable="true" ondragstart="pipeDragStart(event,'${l.id}')" ondragend="this.style.opacity='1'" onclick="viewLead('${l.id}')" style="border-left:4px solid ${color}; ${isStale ? 'border-right: 2px solid rgba(224, 80, 96, 0.4);' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start; margin-bottom:8px">
@@ -7327,9 +7328,9 @@
                  <span style="font-size:11px; font-weight:700; color:${isStale ? 'var(--red)' : 'var(--text)'}">${daysInStage}d</span>
               </div>
               
-              <div style="display:flex; gap:6px">
-                ${l.email ? `<button class="btn btn-ghost" style="width:28px; height:28px; padding:0; border-radius:50%; color:var(--accent); border-color:rgba(197,160,89,0.2)" onclick="event.stopPropagation();sendLeadEmail({email:'${l.email}',name:'${l.name}',property_interest:'${l.property_interest||''}',budget:'${l.budget||''}'},'followup')" title="Send Email"><i class="fas fa-envelope"></i></button>` : ''}
-                <div class="score ${l.score >= 80 ? 'temp-hot' : l.score >= 50 ? 'temp-warm' : 'temp-cold'}" style="font-size:10px; padding:2px 8px; border-radius:10px; height:28px; display:flex; align-items:center">${l.score}%</div>
+              <div style="display:flex; gap:6px; align-items:center">
+                ${l.email ? `<button class="btn btn-ghost" style="width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:50%; color:var(--accent); border-color:rgba(197,160,89,0.2)" onclick="event.stopPropagation();sendLeadEmail({email:'${l.email}',name:'${l.name}',property_interest:'${l.property_interest||''}',budget:'${l.budget||''}'},'followup')" title="Send Email"><i class="fas fa-envelope"></i></button>` : ''}
+                <div class="score ${displayScore >= 80 ? 'temp-hot' : displayScore >= 50 ? 'temp-warm' : 'temp-cold'}" style="font-size:10px; padding:0 8px; border-radius:14px; height:24px; display:flex; align-items:center; justify-content:center; white-space:nowrap; font-weight:700">${displayScore}%</div>
               </div>
             </div>
           </div>`;
