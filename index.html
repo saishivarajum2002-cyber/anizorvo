@@ -2561,6 +2561,12 @@
           <li><a id="fa">Zorvo Realty</a></li>
           <li><a id="fl">RERA: RE-2024-00847</a></li>
         </ul>
+        <div class="social-links" id="footer-social-links" style="display:flex; gap:12px; margin-top:16px;">
+          <a id="soc-ig" style="display:none; color:var(--goldl); font-size:18px;" target="_blank"><i class="fab fa-instagram"></i></a>
+          <a id="soc-fb" style="display:none; color:var(--goldl); font-size:18px;" target="_blank"><i class="fab fa-facebook-f"></i></a>
+          <a id="soc-li" style="display:none; color:var(--goldl); font-size:18px;" target="_blank"><i class="fab fa-linkedin-in"></i></a>
+          <a id="soc-tw" style="display:none; color:var(--goldl); font-size:18px;" target="_blank"><i class="fab fa-x-twitter"></i></a>
+        </div>
       </div>
     </div>
     <div class="fb-bot">
@@ -3060,6 +3066,22 @@
       if (a.email) { var fe = document.getElementById('fe'); if (fe) fe.textContent = a.email; }
       if (a.agency_name) { var fa = document.getElementById('fa'); if (fa) fa.textContent = a.agency_name; }
       if (a.license_number) { var fl = document.getElementById('fl'); if (fl) fl.textContent = 'RERA: ' + a.license_number; }
+      
+      const socials = [
+        { key: 'social_instagram', id: 'soc-ig' },
+        { key: 'social_facebook', id: 'soc-fb' },
+        { key: 'social_linkedin', id: 'soc-li' },
+        { key: 'social_twitter', id: 'soc-tw' }
+      ];
+      socials.forEach(s => {
+        var el = document.getElementById(s.id);
+        if (el && a[s.key]) {
+          el.href = a[s.key];
+          el.style.display = 'inline-block';
+        } else if (el) {
+          el.style.display = 'none';
+        }
+      });
     }
     function updateStats() {
       var active = props.filter(function (p) { return p.status !== 'Sold'; }).length;

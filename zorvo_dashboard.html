@@ -5526,40 +5526,17 @@
             </div>
           </div>
 
-          <!-- AI INTELLIGENCE HUB -->
+          <!-- SOCIAL MEDIA PROFILES -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title"><i class="fas fa-brain"></i> AI Strategic Control</div>
-              <span class="badge" style="background:var(--accent); color:#000">POWERED BY OLLAMA</span>
+              <div class="card-title"><i class="fas fa-share-nodes"></i> Social Media Profiles</div>
             </div>
             <div class="card-body">
-              <div class="form-group">
-                <label class="form-label">Communication Persona</label>
-                <select class="form-input" id="s-ai-tone">
-                  <option value="luxury">Luxury Concierge (Elite & Formal)</option>
-                  <option value="direct" selected>Direct Velocity (Fast & Efficient)</option>
-                  <option value="friendly">Social Catalyst (Relational & Warm)</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Autonomous Operation Window</label>
-                <div style="display:flex; gap:10px; align-items:center">
-                  <input type="time" class="form-input" value="09:00" id="s-ai-start">
-                  <span style="color:var(--muted)">to</span>
-                  <input type="time" class="form-input" value="18:00" id="s-ai-end">
-                </div>
-                <div style="font-size:11px; color:var(--muted); margin-top:6px">AI acts as your primary responder during
-                  these hours.</div>
-              </div>
-              <div
-                style="padding:15px; background:rgba(var(--accent-rgb), 0.05); border-radius:12px; border:1px solid rgba(var(--accent-rgb), 0.2)">
-                <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
-                  <input type="checkbox" checked id="s-use-ollama">
-                  <div style="font-size:13px; font-weight:800; color:var(--accent)">Enable Local Neural Engine</div>
-                </label>
-                <div style="font-size:11px; color:var(--muted); margin-left:24px; margin-top:4px">Bypass cloud latency
-                  using local GPU processing (Port 11434).</div>
-              </div>
+              <div class="form-group"><label class="form-label"><i class="fab fa-instagram"></i> Instagram URL</label><input class="form-input" id="s-social-ig" placeholder="https://instagram.com/..."></div>
+              <div class="form-group"><label class="form-label"><i class="fab fa-facebook-f"></i> Facebook URL</label><input class="form-input" id="s-social-fb" placeholder="https://facebook.com/..."></div>
+              <div class="form-group"><label class="form-label"><i class="fab fa-linkedin-in"></i> LinkedIn URL</label><input class="form-input" id="s-social-li" placeholder="https://linkedin.com/in/..."></div>
+              <div class="form-group"><label class="form-label"><i class="fab fa-x-twitter"></i> Twitter/X URL</label><input class="form-input" id="s-social-tw" placeholder="https://x.com/..."></div>
+              <div style="font-size:11px; color:var(--muted); margin-top:6px">These links will appear in the footer of your public website.</div>
             </div>
           </div>
 
@@ -5595,38 +5572,7 @@
             </div>
           </div>
 
-          <!-- BRANDING & PREVIEW -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title"><i class="fas fa-palette"></i> Branding & Live Preview</div>
-            </div>
-            <div class="card-body">
-              <div class="form-group"><label class="form-label">Agency Name</label><input class="form-input"
-                  id="s-agency" oninput="updateBrandingPreview()"></div>
-              <div style="display:flex; gap:10px; margin-bottom:15px">
-                <div class="color-swatch active" style="background:var(--accent)" onclick="setBrandColor('gold', this)">
-                </div>
-                <div class="color-swatch" style="background:#3b82f6" onclick="setBrandColor('blue', this)"></div>
-                <div class="color-swatch" style="background:#ef4444" onclick="setBrandColor('red', this)"></div>
-                <div class="color-swatch" style="background:#10b981" onclick="setBrandColor('green', this)"></div>
-              </div>
 
-              <div class="branding-preview">
-                <div style="font-size:10px; color:var(--muted); text-transform:uppercase; margin-bottom:10px">Public
-                  Site Preview</div>
-                <div class="preview-card" id="brand-preview-card">
-                  <div
-                    style="width:30px; height:30px; background:var(--accent); border-radius:50%; margin:0 auto 10px; display:flex; align-items:center; justify-content:center; font-size:12px; color:#000; font-weight:900"
-                    id="preview-logo-box">Z</div>
-                  <div id="preview-agency-name" style="font-size:11px; font-weight:900; color:#fff; margin-bottom:10px">
-                    ZORVO</div>
-                  <div class="preview-line" style="width:80%"></div>
-                  <div class="preview-line" style="width:60%"></div>
-                  <div style="background:var(--accent); height:12px; border-radius:4px; margin-top:8px"></div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
         <!-- Website Access Credentials -->
         <div class="card" style="margin-top:16px;border-color:rgba(240,192,64,.2)">
@@ -10064,7 +10010,7 @@ ${date}`;
     // ================================================================
     function renderSettings() {
       const a = state.agent; if (!a) return;
-      const fields = { name: 's-name', email: 's-email', phone: 's-phone', license_number: 's-license', agency_name: 's-agency', website: 's-website', whatsapp: 's-whatsapp', ai_tone: 's-ai-tone', ai_start: 's-ai-start', ai_end: 's-ai-end' };
+      const fields = { name: 's-name', email: 's-email', phone: 's-phone', license_number: 's-license', social_instagram: 's-social-ig', social_facebook: 's-social-fb', social_linkedin: 's-social-li', social_twitter: 's-social-tw' };
       Object.entries(fields).forEach(([key, id]) => { const el = document.getElementById(id); if (el) el.value = a[key] || ''; });
       const sp = document.getElementById('s-plan'); if (sp) sp.value = a.plan || 'Pro Plan';
       const so = document.getElementById('s-use-ollama'); if (so) so.checked = a.use_ollama !== false; // Default to true
@@ -10105,11 +10051,10 @@ ${date}`;
         email: document.getElementById('s-email').value,
         phone: document.getElementById('s-phone').value,
         license_number: document.getElementById('s-license').value,
-        agency_name: document.getElementById('s-agency').value,
-        ai_tone: document.getElementById('s-ai-tone').value,
-        ai_start: document.getElementById('s-ai-start').value,
-        ai_end: document.getElementById('s-ai-end').value,
-        use_ollama: document.getElementById('s-use-ollama').checked
+        social_instagram: document.getElementById('s-social-ig').value,
+        social_facebook: document.getElementById('s-social-fb').value,
+        social_linkedin: document.getElementById('s-social-li').value,
+        social_twitter: document.getElementById('s-social-tw').value
       };
       DB.set(DB.AGENT, a);
       state.agent = a;
