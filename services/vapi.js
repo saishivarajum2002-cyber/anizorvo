@@ -117,6 +117,36 @@ YOUR GOAL:
     return { success: false, error: err.message };
   }
 }
+// ── Make outbound confirmation call via VAPI ────────────────────────────────────
+async function makeConfirmationCall(visit) {
+  if (!VAPI_API_KEY) return { success: true, simulated: true };
+  const { default: fetch } = await import('node-fetch');
+
+  const body = {
+    assistantId:   VAPI_ASSISTANT_ID,
+    assistantOverrides: {
+      firstMessage: `Hi ${visit.client_name || 'there'}! This is ${AGENT_NAME} from ${COMPANY_NAME}. I am calling to confirm your property visit booking for ${visit.property_name || 'our property'}. I see you booked it for ${visit.visit_date} at ${visit.visit_time}. We are very excited to show you the property! Do you need directions or have any questions about the location?`,
+      variableValues: { isConfirmation: 'true', propertyName: visit.property_name },
+    },
+    phoneNumberId: VAPI_PHONE_NUMBER_ID,
+    customer: {
+      number: visit.client_phone,
+      name:   visit.client_name || 'Client',
+    },
+  };
+
+  try {
+    const res  = await fetch('https://api.vapi.ai/call/phone', {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${VAPI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    return { success: res.ok, callId: data.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
 
 // ── Make outbound reminder call via VAPI ──────────────────────────────────────
 async function makeReminderCall(visit) {
@@ -222,7 +252,11 @@ YOUR RULES:
 - Max 2-3 SHORT sentences per reply.
 - Never use bullet points or symbols in speech.
 - Never say you are an AI.
-- Sound 100% natural and human.`
+- Sound 100% natural and human.
+- If the lead asks to speak to a human or real agent, say "I can certainly connect you with one of our senior agents right now. Please hold." and IMMEDIATELY call the transferCall function.
+- If the lead asks a question you don't know the answer to, say "That's a great question, let me transfer you to a senior agent who has that exact information." and call the transferCall function.
+- We ONLY have properties in the locations explicitly mentioned in OUR CURRENT LISTINGS. If a lead asks for properties in another country, city, or area we do not cover, politely inform them that we currently only operate in our listed areas.
+- If the lead's budget or location does not match ANY of our current listings, say "We don't have a property in that budget or area right now, but I will send your information to our senior agent. He will check the market and inform you within 5 hours." and IMMEDIATELY call the notifyAgentNoMatch function.`
         }
       ],
       functions: [
@@ -250,6 +284,19 @@ YOUR RULES:
             required: ['reason'],
           },
         },
+        {
+          name:        'notifyAgentNoMatch',
+          description: 'Notify the human agent when a lead requests a budget or location we do not currently have in inventory.',
+          parameters: {
+            type: 'object',
+            properties: {
+              budget: { type: 'string', description: 'The budget the lead requested' },
+              location: { type: 'string', description: 'The location the lead requested' },
+              property_type: { type: 'string', description: 'The type of property requested' }
+            },
+            required: ['budget', 'location'],
+          },
+        },
       ],
     },
     voice: {
@@ -271,6 +318,7 @@ YOUR RULES:
 }
 
 module.exports = {
+  makeConfirmationCall,
   makeOutboundCall,
   makeReminderCall,
   getCall,

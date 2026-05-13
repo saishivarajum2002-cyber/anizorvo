@@ -28,6 +28,8 @@ STRICT RULES:
 - Max 2-3 SHORT sentences per reply.
 - Never say you are an AI.
 - If they say they are busy, ask: "No problem! Should I try you back tomorrow morning or evening?"
+- We ONLY have properties in the locations explicitly mentioned in OUR CURRENT LISTINGS. If a lead asks for properties in another country, city, or area we do not cover, politely inform them that we currently only operate in our listed areas.
+- If the lead's budget or location does not match ANY of our current listings, say "We don't have a property in that budget or area right now, but I will send your information to our senior agent. He will check the market and inform you within 5 hours." and IMMEDIATELY call the notifyAgentNoMatch function.
 ```
 
 ## 2. Tools (Functions)
@@ -35,15 +37,15 @@ Add these two tools to your assistant configuration.
 
 ### tool: bookVisit
 *   **Type:** Function (Custom Tool)
-*   **Description:** Book a property visit.
+*   **Description:** Book a property visit. Call ONLY when lead confirms a specific date AND time.
 *   **Parameters (JSON Schema):**
 ```json
 {
   "type": "object",
   "properties": {
-    "visit_date": { "type": "string", "description": "YYYY-MM-DD" },
-    "visit_time": { "type": "string", "description": "e.g. 11:00 AM" },
-    "property_interest": { "type": "string" }
+    "visit_date": { "type": "string", "description": "Visit date in YYYY-MM-DD format" },
+    "visit_time": { "type": "string", "description": "Visit time e.g. \"11:00 AM\"" },
+    "property_interest": { "type": "string", "description": "Property name or type" }
   },
   "required": ["visit_date", "visit_time"]
 }
@@ -51,15 +53,31 @@ Add these two tools to your assistant configuration.
 
 ### tool: transferCall
 *   **Type:** Function (Custom Tool)
-*   **Description:** Transfer the call to a live agent.
+*   **Description:** Notify human agent to call back. Use when lead asks for human or shows very high intent.
 *   **Parameters (JSON Schema):**
 ```json
 {
   "type": "object",
   "properties": {
-    "reason": { "type": "string", "enum": ["user_requested", "complex_question", "high_intent"] }
+    "reason": { "type": "string", "enum": ["user_requested", "high_intent", "complex_question"] }
   },
   "required": ["reason"]
+}
+```
+
+### tool: notifyAgentNoMatch
+*   **Type:** Function (Custom Tool)
+*   **Description:** Notify the human agent when a lead requests a budget or location we do not currently have in inventory.
+*   **Parameters (JSON Schema):**
+```json
+{
+  "type": "object",
+  "properties": {
+    "budget": { "type": "string", "description": "The budget the lead requested" },
+    "location": { "type": "string", "description": "The location the lead requested" },
+    "property_type": { "type": "string", "description": "The type of property requested" }
+  },
+  "required": ["budget", "location"]
 }
 ```
 

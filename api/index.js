@@ -27,7 +27,7 @@ const {
 } = require('../services/sms');
 
 // ── AI Voice Agent
-const { makeOutboundCall, makeReminderCall, buildAssistantConfig } = require('../services/vapi');
+const { makeOutboundCall, makeReminderCall, makeConfirmationCall, buildAssistantConfig } = require('../services/vapi');
 
 // ── Team + Retry Services
 const { assignLeadToAgent, saveTeamLead, updateLeadStage, saveCallLog, getTeamReport } = require('../services/team');
@@ -822,6 +822,12 @@ app.post('/api/visits', async (req, res) => {
             message: `Hi ${visit.client_name}, your visit is confirmed for ${visit.visit_date} at ${visit.visit_time}.`,
             html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border-radius:8px;overflow:hidden"><div style="background:#1a1a18;padding:24px;text-align:center"><h2 style="color:#2ecc8a;margin:0">🏡 Visit Confirmed!</h2></div><div style="background:#fff;padding:24px"><p>Hi ${visit.client_name}, your viewing for <strong>${visit.property_name}</strong> is confirmed.</p></div></div>`
           });
+        }
+
+        // Trigger AI Confirmation Call if not booked by AI itself
+        if (!is_ai_booking && visit.client_phone) {
+          console.log('🤖 Triggering AI Confirmation Call to ' + visit.client_phone);
+          await makeConfirmationCall(visit);
         }
       } catch (err) {
         console.error('❌ Background Task Error:', err.message);
@@ -1695,7 +1701,7 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 });
 
-app.get('/api/sync', protect, async (req, res) => {
+app.get('/api/sync', async (req, res) => {
   try {
     const { email } = req.query;
     if (!email) return res.status(400).json({ error: 'Email required' });
@@ -2032,6 +2038,36 @@ app.post('/api/vapi/webhook', async (req, res) => {
           results: [{
             toolCallId: event.message.functionCall.id,
             result: "Transferring you to a live agent now. One moment please."
+          }]
+        });
+      }
+
+      if (fnName === 'notifyAgentNoMatch') {
+        const { budget, location, property_type } = fnArgs;
+        console.log('⚠️ Unmatched Lead Alert: ' + phone + ' - ' + budget + ' in ' + location);
+
+        try {
+          await sendEmail({
+            to: AGENT_EMAIL,
+            subject: '⚠️ Unmatched Lead Alert: Request outside inventory',
+            message: `A lead called but their request does not match our current inventory.
+
+Lead Phone: ${phone}
+Requested Budget: ${budget || 'N/A'}
+Requested Location: ${location || 'N/A'}
+Property Type: ${property_type || 'N/A'}
+
+Please check the market and contact them within 5 hours.
+
+— PropEdge AI`,
+            html: '<div style="font-family:Arial,sans-serif;max-width:600px;background:#0a0e14;color:#faf8f4;padding:24px;border-radius:8px;border:2px solid #f0c040"><h2 style="color:#f0c040;margin:0 0 16px">⚠️ Unmatched Lead Request</h2><p>A lead called asking for something outside our current inventory. They have been informed you will reach out within 5 hours.</p><table style="width:100%;border-collapse:collapse"><tr><td style="padding:8px 0;color:rgba(255,255,255,0.5)">Lead Phone:</td><td style="padding:8px 0;color:#faf8f4;font-weight:bold">' + phone + '</td></tr><tr><td style="padding:8px 0;color:rgba(255,255,255,0.5)">Requested Budget:</td><td style="padding:8px 0;color:#faf8f4">' + (budget || 'N/A') + '</td></tr><tr><td style="padding:8px 0;color:rgba(255,255,255,0.5)">Requested Location:</td><td style="padding:8px 0;color:#faf8f4">' + (location || 'N/A') + '</td></tr><tr><td style="padding:8px 0;color:rgba(255,255,255,0.5)">Property Type:</td><td style="padding:8px 0;color:#faf8f4">' + (property_type || 'N/A') + '</td></tr></table></div>'
+          });
+        } catch (e) { console.error('Notify Email Error:', e.message); }
+
+        return res.json({
+          results: [{
+            toolCallId: event.message.functionCall.id,
+            result: 'Successfully notified the agent. Please tell the user: I have sent your details to our senior agent, he will check the market and inform you within 5 hours.'
           }]
         });
       }
