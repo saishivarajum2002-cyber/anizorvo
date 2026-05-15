@@ -65,6 +65,8 @@ YOUR GOAL:
 2. Verify if their budget of ${lead.budget || 'flexible'} is still accurate or if they've seen something else they like.
 3. Use the property list above to suggest 1-2 specific matches if they are unsure.
 4. Book a physical visit for them.
+   - CURRENT DATE: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+   - RULE: When calling bookVisit, you MUST convert relative dates (like "next Thursday") into absolute YYYY-MM-DD format using the CURRENT DATE as reference.
 5. If they are busy, keep it short and offer to follow up via email.`
         }
       ]
@@ -247,6 +249,8 @@ YOUR CALL GOALS:
 4. Match them to the best property from our listings.
 5. Describe the matched property naturally and excitedly.
 6. Book a physical visit for them — ask for their preferred date and time.
+   - CURRENT DATE: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+   - RULE: When calling bookVisit, you MUST convert relative dates (like "tomorrow" or "Friday") into absolute YYYY-MM-DD format based on CURRENT DATE.
 
 YOUR RULES:
 - Max 2-3 SHORT sentences per reply.

@@ -723,118 +723,150 @@ app.post('/api/whatsapp', async (req, res) => {
   }
 });
 
+// ── Visit Booking Helper ───────────────────────────────────────────────────
+function parseRelativeDate(dateStr) {
+  if (!dateStr) return dateStr;
+  const lower = String(dateStr).toLowerCase().trim();
+  
+  // If it's already YYYY-MM-DD, return it
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  
+  const now = new Date();
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  
+  if (lower === 'today') return now.toISOString().split('T')[0];
+  if (lower === 'tomorrow') {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  }
+  
+  // Handle "next thursday", "this friday"
+  const cleanDay = lower.replace(/next |this /g, '');
+  const dayIndex = days.indexOf(cleanDay);
+  if (dayIndex !== -1) {
+    const todayIndex = now.getDay();
+    let diff = dayIndex - todayIndex;
+    if (diff <= 0) diff += 7; // If today is Friday and user said "Friday", assume next Friday
+    const targetDate = new Date(now);
+    targetDate.setDate(now.getDate() + diff);
+    return targetDate.toISOString().split('T')[0];
+  }
+  
+  return dateStr; // Fallback
+}
+
+async function processVisitBooking({ agentEmail, visit, is_ai_booking }) {
+  if (!agentEmail || !visit) throw new Error('agentEmail and visit required');
+  
+  // Pre-parse date
+  visit.visit_date = parseRelativeDate(visit.visit_date);
+
+  // ── Parallelized Checks ──
+  const checks = [];
+  if (!is_ai_booking) {
+    if (visit.qualification_token) checks.push(getQualification(visit.qualification_token).then(r => ({ type: 'qual', res: r })));
+    if (visit.agreement_token) checks.push(getAgreement(visit.agreement_token).then(r => ({ type: 'agree', res: r })));
+  }
+  checks.push(getVisitsByDate(visit.visit_date).then(r => ({ type: 'avail', res: r })));
+
+  const results = await Promise.all(checks);
+
+  for (const result of results) {
+    const r = result.res;
+    if (result.type === 'qual') {
+      if (!r.success) throw { status: 403, error: 'Invalid qualification token.', code: 'QUAL_REQUIRED' };
+      if (!r.data.is_qualified) throw { status: 403, error: 'Qualification score too low.', code: 'QUAL_FAILED' };
+    }
+    if (result.type === 'agree' && !r.success) {
+      throw { status: 403, error: 'Buyer Agreement not found.', code: 'AGREE_REQUIRED' };
+    }
+    if (result.type === 'avail' && r.success) {
+      const requestedSlot = String(visit.visit_time).trim().substring(0, 5);
+      const isBooked = r.data.some(v =>
+        String(v.visit_time).trim().substring(0, 5) === requestedSlot &&
+        (v.status || '').toLowerCase() !== 'cancelled'
+      );
+      if (isBooked) {
+        throw { status: 409, error: `The ${requestedSlot} slot on ${visit.visit_date} is already booked.`, code: 'SLOT_TAKEN' };
+      }
+    }
+  }
+
+  // ── Save to Supabase
+  const { success: supabaseSaved, data: savedVisit, error: supabaseError } = await saveVisitToSupabase({
+    ...visit,
+    agreement_id: visit.agreement_token || null,
+    qualification_id: visit.qualification_token || null,
+    status: 'confirmed',
+    created_at: new Date().toISOString()
+  });
+
+  if (!supabaseSaved) {
+    throw new Error('Database Save Failed: ' + supabaseError);
+  }
+
+  const realId = savedVisit.id;
+  console.log(`📌 Generated Supabase Visit ID: ${realId}`);
+
+  // --- BACKGROUND PROCESSING ---
+  (async () => {
+    try {
+      // Save to MongoDB
+      let snapshot = await DataSnapshot.findOne({ email: agentEmail });
+      if (!snapshot) snapshot = new DataSnapshot({ email: agentEmail, data: { pe_bookings: [] } });
+      let bookings = snapshot.data.pe_bookings || [];
+      if (typeof bookings === 'string') { try { bookings = JSON.parse(bookings); } catch (e) { bookings = []; } }
+      
+      const dashboardVisit = { ...visit, id: realId, status: 'confirmed', created_at: new Date().toISOString() };
+      bookings.unshift(dashboardVisit);
+      
+      snapshot.data.pe_bookings = typeof snapshot.data.pe_bookings === 'string' ? JSON.stringify(bookings) : bookings;
+      snapshot.markModified('data');
+      await snapshot.save();
+
+      // ── Notify Agent (Dashboard & Email)
+      await notifyAgent(agentEmail, {
+        title: `🛎️ New Visit: ${visit.client_name}`,
+        description: `Property: ${visit.property_name}\nDate: ${visit.visit_date} at ${visit.visit_time}\nPhone: ${visit.client_phone}`,
+        type: 'booking',
+        icon: '📅',
+        emailSubject: `🛎️ AGENT ALERT: New Visit Request - ${visit.client_name}`
+      });
+
+      // Client Confirmation Email
+      if (visit.client_email) {
+        await sendEmail({
+          to: visit.client_email,
+          subject: `🏡 CONFIRMED: Your visit to ${visit.property_name}`,
+          message: `Hi ${visit.client_name}, your visit is confirmed for ${visit.visit_date} at ${visit.visit_time}.`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border-radius:8px;overflow:hidden"><div style="background:#1a1a18;padding:24px;text-align:center"><h2 style="color:#2ecc8a;margin:0">🏡 Visit Confirmed!</h2></div><div style="background:#fff;padding:24px"><p>Hi ${visit.client_name}, your viewing for <strong>${visit.property_name}</strong> is confirmed.</p></div></div>`
+        });
+      }
+
+      // Trigger AI Confirmation Call
+      if (!is_ai_booking && visit.client_phone) {
+        await makeConfirmationCall(visit);
+      }
+    } catch (err) {
+      console.error('❌ Background Task Error:', err.message);
+    }
+  })();
+
+  return { success: true, id: realId };
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
-// PROPERTY VISITS — POST /api/visits (gated by qualification + agreement)
+// PROPERTY VISITS — POST /api/visits
 // ──────────────────────────────────────────────────────────────────────────────
 app.post('/api/visits', async (req, res) => {
-  const { agentEmail, visit, is_ai_booking } = req.body;
   try {
-    if (!agentEmail || !visit) return res.status(400).json({ error: 'agentEmail and visit required' });
-
-    // ── Parallelized Checks ──
-    // Always check availability — even for AI bookings
-    try {
-      const checks = [];
-      if (!is_ai_booking) {
-        if (visit.qualification_token) checks.push(getQualification(visit.qualification_token).then(r => ({ type: 'qual', res: r })));
-        if (visit.agreement_token) checks.push(getAgreement(visit.agreement_token).then(r => ({ type: 'agree', res: r })));
-      }
-      checks.push(getVisitsByDate(visit.visit_date).then(r => ({ type: 'avail', res: r })));
-
-      const results = await Promise.all(checks);
-
-      for (const result of results) {
-        const r = result.res;
-        if (result.type === 'qual') {
-          if (!r.success) return res.status(403).json({ error: 'Invalid qualification token.', code: 'QUAL_REQUIRED' });
-          if (!r.data.is_qualified) return res.status(403).json({ error: 'Qualification score too low.', code: 'QUAL_FAILED' });
-        }
-        if (result.type === 'agree' && !r.success) {
-          return res.status(403).json({ error: 'Buyer Agreement not found.', code: 'AGREE_REQUIRED' });
-        }
-        if (result.type === 'avail' && r.success) {
-          const requestedSlot = String(visit.visit_time).trim().substring(0, 5);
-          const isBooked = r.data.some(v =>
-            String(v.visit_time).trim().substring(0, 5) === requestedSlot &&
-            (v.status || '').toLowerCase() !== 'cancelled'
-          );
-          if (isBooked) {
-            console.warn(`⛔ Slot conflict: ${visit.visit_date} ${requestedSlot} already booked`);
-            return res.status(409).json({
-              error: `The ${requestedSlot} slot on ${visit.visit_date} is already booked. Please choose a different time.`,
-              code: 'SLOT_TAKEN'
-            });
-          }
-        }
-      }
-    } catch (e) {
-      // If availability check itself fails, still block — don't silently allow double-booking
-      console.error('❌ Pre-booking Check Error:', e.message);
-      return res.status(500).json({ error: 'Could not verify slot availability. Please try again.' });
-    }
-
-    // ── Save to Supabase
-    const { success: supabaseSaved, data: savedVisit, error: supabaseError } = await saveVisitToSupabase({
-      ...visit,
-      agreement_id: visit.agreement_token || null,
-      qualification_id: visit.qualification_token || null,
-      status: 'confirmed',
-      created_at: new Date().toISOString()
-    });
-
-    if (!supabaseSaved) {
-      console.error('❌ Supabase Save Failure:', supabaseError);
-      return res.status(500).json({ error: 'Database Save Failed: ' + supabaseError });
-    }
-
-    const realId = savedVisit.id;
-    console.log(`📌 Generated Supabase Visit ID: ${realId}`);
-
-    // --- SUCCESS RESPONSE ---
-    res.json({ success: true, id: realId, message: 'Visit confirmed!' });
-
-    // --- BACKGROUND PROCESSING ---
-    (async () => {
-      try {
-        // Save to MongoDB
-        let snapshot = await DataSnapshot.findOne({ email: agentEmail });
-        if (!snapshot) snapshot = new DataSnapshot({ email: agentEmail, data: { pe_bookings: [] } });
-        let bookings = snapshot.data.pe_bookings || [];
-        if (typeof bookings === 'string') { try { bookings = JSON.parse(bookings); } catch (e) { bookings = []; } }
-        bookings.unshift({ ...visit, id: realId, status: 'confirmed', created_at: new Date().toISOString() });
-        snapshot.data.pe_bookings = typeof snapshot.data.pe_bookings === 'string' ? JSON.stringify(bookings) : bookings;
-        snapshot.markModified('data');
-        await snapshot.save();
-
-        // Agent Email Alert
-        await sendEmail({
-          to: agentEmail,
-          subject: `🛎️ AGENT ALERT: New Visit Request - ${visit.client_name}`,
-          message: `A new property visit has been confirmed!\n\n📌 Property: ${visit.property_name}\n👤 Client: ${visit.client_name}\n📅 Date: ${visit.visit_date} at ${visit.visit_time}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border-radius:8px;overflow:hidden"><div style="background:#1a1a18;padding:24px;text-align:center"><h2 style="color:#d4b483;margin:0;font-size:22px">🛎️ Agent Alert: New Booking</h2></div><div style="background:#fff;padding:24px"><p>Hi Admin, a new visit for <strong>${visit.property_name}</strong> is confirmed for <strong>${visit.client_name}</strong>.</p></div></div>`
-        });
-
-        // Client Confirmation Email
-        if (visit.client_email) {
-          await sendEmail({
-            to: visit.client_email,
-            subject: `🏡 CONFIRMED: Your visit to ${visit.property_name}`,
-            message: `Hi ${visit.client_name}, your visit is confirmed for ${visit.visit_date} at ${visit.visit_time}.`,
-            html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border-radius:8px;overflow:hidden"><div style="background:#1a1a18;padding:24px;text-align:center"><h2 style="color:#2ecc8a;margin:0">🏡 Visit Confirmed!</h2></div><div style="background:#fff;padding:24px"><p>Hi ${visit.client_name}, your viewing for <strong>${visit.property_name}</strong> is confirmed.</p></div></div>`
-          });
-        }
-
-        // Trigger AI Confirmation Call if not booked by AI itself
-        if (!is_ai_booking && visit.client_phone) {
-          console.log('🤖 Triggering AI Confirmation Call to ' + visit.client_phone);
-          await makeConfirmationCall(visit);
-        }
-      } catch (err) {
-        console.error('❌ Background Task Error:', err.message);
-      }
-    })();
+    const result = await processVisitBooking(req.body);
+    res.json({ ...result, message: 'Visit confirmed!' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create visit: ' + error.message });
+    console.error('❌ Visit Creation Error:', error.message || error.error);
+    const status = error.status || 500;
+    res.status(status).json({ error: error.error || error.message || 'Internal Server Error', code: error.code });
   }
 });
 
@@ -1963,40 +1995,44 @@ app.post('/api/vapi/webhook', async (req, res) => {
         }
 
         // Save the booking
-        const visitPayload = {
-          agentEmail: AGENT_EMAIL,
-          is_ai_booking: true,
-          visit: {
-            client_name: leadInfo.name || call.customer?.name || 'Lead',
-            client_phone: phone,
-            client_email: leadInfo.email || '',
-            property_name: fnArgs.property_interest || leadInfo.property_interest || 'Property Visit',
-            visit_date: fnArgs.visit_date,
-            visit_time: fnArgs.visit_time,
-            notes: `Booked by VAPI AI agent — call ID: ${call.id}`,
-            status: 'confirmed',
-          }
-        };
+        try {
+          const visitPayload = {
+            agentEmail: AGENT_EMAIL,
+            is_ai_booking: true,
+            visit: {
+              client_name: leadInfo.name || call.customer?.name || 'Lead',
+              client_phone: phone,
+              client_email: leadInfo.email || '',
+              property_name: fnArgs.property_interest || leadInfo.property_interest || 'Property Visit',
+              visit_date: fnArgs.visit_date,
+              visit_time: fnArgs.visit_time,
+              notes: `Booked by VAPI AI agent — call ID: ${call.id}`,
+              status: 'confirmed',
+            }
+          };
 
-        // Trigger the visit save endpoint
-        const { default: fetch } = await import('node-fetch');
-        await fetch(`${process.env.BASE_URL || 'https://real-estate-web-liard-rho.vercel.app'}/api/visits`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(visitPayload),
-        });
+          const bookingResult = await processVisitBooking(visitPayload);
+          
+          if (leadId) await updateLeadStage(leadId, 'booked');
+          if (phone) cancelFollowUps(phone);
 
-        if (leadId) await updateLeadStage(leadId, 'booked');
-        if (phone) cancelFollowUps(phone);
-
-        console.log(`✅ VAPI booking saved: ${fnArgs.visit_date} ${fnArgs.visit_time}`);
-        
-        return res.json({
-          results: [{
-            toolCallId: event.message.functionCall.id,
-            result: `Visit successfully booked for ${fnArgs.visit_date} at ${fnArgs.visit_time}. Tell the customer we look forward to seeing them!`
-          }]
-        });
+          console.log(`✅ VAPI booking saved via processVisitBooking: ${fnArgs.visit_date} ${fnArgs.visit_time}`);
+          
+          return res.json({
+            results: [{
+              toolCallId: event.message.functionCall.id,
+              result: `Visit successfully booked for ${fnArgs.visit_date} at ${fnArgs.visit_time}. Tell the customer we look forward to seeing them!`
+            }]
+          });
+        } catch (bookingError) {
+          console.error('❌ VAPI tool bookVisit failed:', bookingError.message || bookingError.error);
+          return res.json({
+            results: [{
+              toolCallId: event.message.functionCall.id,
+              result: `I am sorry, but I couldn't book that slot: ${bookingError.error || bookingError.message}. Please ask the customer for a different time.`
+            }]
+          });
+        }
       }
 
       if (fnName === 'transferCall') {

@@ -124,3 +124,19 @@ To make the AI pick up calls when someone calls your Vapi number:
 2. Select your phone number.
 3. Set the **Server URL** for the phone number to the same webhook: `https://anizorvo.vercel.app/api/vapi/webhook`.
 4. Now, when a call comes in, the system will provide the assistant config dynamically, and Sarah will answer automatically.
+
+## 6. Date Awareness & Booking Reliability
+The system is now configured with **Date Awareness**. This means the AI knows the current date and can convert relative phrases like "next Tuesday" into the `YYYY-MM-DD` format required for bookings.
+
+- **Automated**: The backend code automatically injects the current date into the system prompt.
+- **Manual Testing**: If you are testing the assistant directly in the Vapi Dashboard, you should manually add a line like `CURRENT DATE: Friday, May 15, 2026` to the system prompt to help the AI calculate dates correctly during tests.
+
+## 7. Unified Notifications
+Every successful booking via Vapi now triggers a unified notification sequence:
+- **Agent Dashboard Alert**: A notification appears under the bell icon in your dashboard.
+- **Agent Email**: A detailed email is sent to your registered address.
+- **Client Email**: A confirmation email is sent to the lead.
+
+> [!TIP]
+> Ensure your `AGENT_EMAIL` in the `.env` file is correct, as this is where all booking alerts will be sent.
+
