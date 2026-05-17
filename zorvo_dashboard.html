@@ -5486,21 +5486,30 @@
         <!-- Test button -->
         <div class="card" style="margin-top:16px">
           <div class="card-header">
-            <div class="card-title">🧪 Test Follow-Up Message</div>
+            <div class="card-title">🧪 Test Follow-Up Email Drip</div>
           </div>
           <div class="card-body">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
               <div class="form-group" style="margin:0">
-                <label class="form-label">Phone Number</label>
-                <input class="form-input" id="fu-test-phone" placeholder="+919876543210">
+                <label class="form-label">Recipient Email</label>
+                <input class="form-input" id="fu-test-phone" placeholder="email@example.com">
               </div>
               <div class="form-group" style="margin:0">
                 <label class="form-label">Lead Name</label>
                 <input class="form-input" id="fu-test-name" placeholder="Rahul Sharma">
               </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Select Drip Day</label>
+                <select class="form-input" id="fu-test-day" style="background:#111520;color:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+                  <option value="0">Day 0: Welcome + Listings</option>
+                  <option value="1">Day 1: Follow-Up Check</option>
+                  <option value="2">Day 2: Social Proof & Urgency</option>
+                  <option value="3">Day 3: Final Visit CTA</option>
+                </select>
+              </div>
             </div>
             <button class="btn btn-primary" onclick="sendTestFollowUp()">
-              📱 Send Test WhatsApp Now
+              ✉️ Send Test Drip Email Now
             </button>
           </div>
         </div>
@@ -9889,23 +9898,24 @@ ${date}`;
     }
 
     async function sendTestFollowUp() {
-      const phone = document.getElementById('fu-test-phone').value.trim();
+      const email = document.getElementById('fu-test-phone').value.trim();
       const name = document.getElementById('fu-test-name').value.trim();
-      if (!phone) { toast('Enter a phone number'); return; }
+      const day = document.getElementById('fu-test-day')?.value || '0';
+      if (!email) { toast('Enter a recipient email address', true); return; }
       try {
         const secret = (DB.get('pe_access') || {}).password || '';
         const res = await fetch('/api/followups/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-secret': secret },
-          body: JSON.stringify({ phone, name, property_interest: '3BHK Apartment' })
+          body: JSON.stringify({ email, phone: email, name, property_interest: 'Skyview Residences', day: parseInt(day) })
         });
         const data = await res.json();
         if (data.success) {
-          toast('✅ Test message sent to ' + phone + '!');
+          toast(`✅ Day ${day} Drip test email sent to ` + email + '!');
         } else {
-          toast('⚠️ ' + (data.result?.error || 'Check WhatsApp bridge'));
+          toast('⚠️ ' + (data.error || data.result?.error || 'Email dispatch failed'), true);
         }
-      } catch (e) { toast('Cannot reach backend'); }
+      } catch (e) { toast('Cannot reach backend', true); }
     }
 
     // ================================================================

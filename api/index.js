@@ -1431,10 +1431,10 @@ app.post('/api/leads', async (req, res) => {
             : snap.data.pe_properties;
         }
       } catch (e) { console.error('Followup property fetch error:', e.message); }
-      scheduleFollowUps(lead, followupProperties);
+      await scheduleFollowUps(lead, followupProperties);
     } else if (lead.phone && !lead.email) {
       // Still register in queue even without email (for cancellation tracking)
-      scheduleFollowUps(lead, []);
+      await scheduleFollowUps(lead, []);
     }
 
     // ── ⚡ INSTANT AI CALL — triggered within seconds of lead arrival
@@ -1812,7 +1812,7 @@ app.post('/api/ai/chat', async (req, res) => {
           action = 'BOOKED';
           // ── Cancel follow-up messages now that lead has booked
           if (visitPayload?.visit?.client_phone) {
-            cancelFollowUps(visitPayload.visit.client_phone);
+            await cancelFollowUps(visitPayload.visit.client_phone);
           }
           console.log(`📅 AI auto-booked visit: ${propertyName} on ${visitDate} at ${visitTime} for ${session.leadData.name}`);
         }
@@ -2180,7 +2180,7 @@ app.post('/api/vapi/webhook', async (req, res) => {
 
           const bookingResult = await processVisitBooking(visitPayload);
           
-          if (phone) cancelFollowUps(phone);
+          if (phone) await cancelFollowUps(phone);
 
           console.log(`✅ VAPI booking saved via processVisitBooking: ${fnArgs.visit_date} ${fnArgs.visit_time}`);
           
@@ -2541,7 +2541,7 @@ Please check the market and contact them within 5 hours.
               : snap.data.pe_properties;
           }
         } catch (e) { console.error('VAPI followup property fetch error:', e.message); }
-        scheduleFollowUps(leadForFollowup, followupProperties);
+        await scheduleFollowUps(leadForFollowup, followupProperties);
       }
     }
 
@@ -2590,33 +2590,92 @@ app.get('/api/vapi/status', (req, res) => {
 // =============================================================================
 
 // ── GET /api/followups — list all scheduled follow-ups ────────────────────────
-app.get('/api/followups', protect, (req, res) => {
-  const list = getAllScheduled();
-  res.json({ success: true, count: list.length, followups: list });
+app.get('/api/followups', protect, async (req, res) => {
+  try {
+    // Run the passive drip engine to send any outstanding emails
+    const followupService = require('../services/followup');
+    await followupService.processFollowUpDrip();
+    
+    const list = await followupService.getAllScheduled();
+    res.json({ success: true, count: list.length, followups: list });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/cron/followups — automated cron drip processor ───────────────────
+app.get('/api/cron/followups', async (req, res) => {
+  try {
+    console.log('⏰ Running automated cron followups check...');
+    const followupService = require('../services/followup');
+    await followupService.processFollowUpDrip();
+    res.json({ success: true, message: 'Drip sequence check executed successfully.' });
+  } catch (err) {
+    console.error('Cron Followup Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── DELETE /api/followups/:phone — cancel follow-ups for a lead ───────────────
-app.delete('/api/followups/:phone', protect, (req, res) => {
-  const phone = decodeURIComponent(req.params.phone);
-  cancelFollowUps(phone);
-  res.json({ success: true, message: `Follow-ups cancelled for ${phone}` });
+app.delete('/api/followups/:phone', protect, async (req, res) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    await cancelFollowUps(phone);
+    res.json({ success: true, message: `Follow-ups cancelled for ${phone}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ── POST /api/followups/test — send test message immediately ──────────────────
+// ── POST /api/followups/test — send test email immediately ──────────────────
 app.post('/api/followups/test', protect, async (req, res) => {
-  const { phone, name, property_interest, day = 0 } = req.body;
-  if (!phone) return res.status(400).json({ error: 'phone required' });
+  try {
+    const { phone, name, property_interest, day = 0, email } = req.body;
+    const targetEmail = email || phone;
+    if (!targetEmail) return res.status(400).json({ error: 'Recipient email required' });
 
-  const lead = { phone, name: name || 'Test Lead', property_interest: property_interest || '3BHK Apartment', budget: '' };
-  const msgs = [
-    require('../services/followup').scheduleFollowUps,
-  ];
+    // Load properties from MongoDB DataSnapshot
+    let properties = [];
+    try {
+      const DataSnapshot = mongoose.models.DataSnapshot || mongoose.model('DataSnapshot');
+      const snap = await DataSnapshot.findOne({ email: AGENT_EMAIL });
+      if (snap?.data?.pe_properties) {
+        properties = typeof snap.data.pe_properties === 'string'
+          ? JSON.parse(snap.data.pe_properties)
+          : snap.data.pe_properties;
+      }
+    } catch (peErr) {
+      console.error('Test drip properties fetch error:', peErr.message);
+    }
 
-  // Send immediate test message
-  const { sendWhatsAppText } = require('../services/whatsapp');
-  const testMsg = `🧪 *Zorvo Follow-Up Test*\n\nThis is a test of the Day ${day} follow-up message for ${name || 'Test Lead'}.\n\nIf you received this, your WhatsApp follow-up system is working! ✅`;
-  const result = await sendWhatsAppText(phone, testMsg);
-  res.json({ success: true, result });
+    const lead = {
+      phone: phone || '+971 50 123 4567',
+      name: name || 'Test Lead',
+      email: targetEmail,
+      property_interest: property_interest || 'Skyview Residences',
+      budget: '$500,000'
+    };
+
+    const followupService = require('../services/followup');
+    let emailData;
+    if (day == 1) {
+      emailData = followupService.buildDay1Email(lead, properties);
+    } else if (day == 2) {
+      emailData = followupService.buildDay2Email(lead, properties);
+    } else if (day == 3) {
+      emailData = followupService.buildDay3Email(lead, properties);
+    } else {
+      emailData = followupService.buildDay0Email(lead, properties);
+    }
+
+    const subject = `[TEST Drip Day ${day}] ` + emailData.subject;
+    const { sendEmail } = require('../services/email');
+    const result = await sendEmail({ to: targetEmail, subject, html: emailData.html, message: emailData.plain });
+    
+    res.json({ success: result.success, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =============================================================================

@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // services/followup.js — Automatic Email Follow-Up Drip Sequence
 // ─────────────────────────────────────────────────────────────────────────────
-// Day 0 (instant ~3s) → Welcome email with full property list
+// Day 0 (instant)      → Welcome email with full property list
 // Day 1 (24h)         → "Did you get a chance to look?"
 // Day 2 (48h)         → Social proof + urgency
 // Day 3 (72h)         → Final push + direct booking link
@@ -12,17 +12,28 @@
 
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const mongoose = require('mongoose');
 const { sendEmail } = require('./email');
 
 const AGENT_NAME   = process.env.AGENT_NAME   || 'Sarah Al-Rashid';
-const AGENT_EMAIL  = process.env.AGENT_EMAIL  || 'agent@zorvo.com';
+const AGENT_EMAIL  = process.env.AGENT_EMAIL  || 'saishivaraju.m2002@gmail.com';
 const AGENT_PHONE  = process.env.AGENT_PHONE  || '+971 50 123 4567';
 const COMPANY_NAME = process.env.COMPANY_NAME || 'Zorvo Realty';
 const BASE_URL     = process.env.BASE_URL     || 'https://anizorvo.vercel.app';
 
-// ── In-memory follow-up queue ─────────────────────────────────────────────────
-// { phone → { lead, timers: [t0,t1,t2,t3], cancelled: false } }
-const followUpQueue = new Map();
+// ── MongoDB Schema Definition ─────────────────────────────────────────────────
+const FollowUpSchema = new mongoose.Schema({
+  phone: { type: String, required: true, unique: true },
+  name: { type: String, default: '' },
+  email: { type: String, default: '' },
+  property_interest: { type: String, default: '' },
+  budget: { type: String, default: '' },
+  scheduled_at: { type: Date, default: Date.now },
+  status: { type: String, default: 'active' }, // active | completed | cancelled
+  last_sent_day: { type: Number, default: 0 }  // 0 = Day 0 sent, 1 = Day 1, etc.
+}, { timestamps: true });
+
+const FollowUp = mongoose.models.FollowUp || mongoose.model('FollowUp', FollowUpSchema);
 
 // ── Shared HTML wrapper ───────────────────────────────────────────────────────
 function wrapEmail(headerTitle, headerSub, bodyHtml) {
@@ -243,7 +254,7 @@ function buildDay3Email(lead, properties) {
  * @param {object} lead       - Lead object { name, email, phone, property_interest, budget }
  * @param {Array}  properties - Array of property objects from the agent's snapshot
  */
-function scheduleFollowUps(lead, properties = []) {
+async function scheduleFollowUps(lead, properties = []) {
   const phone = lead.phone;
   if (!phone) return;
 
@@ -253,98 +264,167 @@ function scheduleFollowUps(lead, properties = []) {
     return;
   }
 
-  // Cancel any existing follow-ups for this number
-  cancelFollowUps(phone);
+  // 1. Cancel any existing follow-ups for this number
+  await cancelFollowUps(phone);
 
-  const timers = [];
+  // 2. Day 0 Welcome Email: Send INSTANTLY inside the active request context
+  // This completely solves the issue where setTimeout is killed in Vercel serverless runs.
+  console.log(`📧 Dispatching Drip Day 0 (Welcome) instantly to ${lead.name} <${lead.email}>...`);
+  try {
+    const { subject, html, plain } = buildDay0Email(lead, properties);
+    const result = await sendEmail({ to: lead.email, subject, html, message: plain });
+    if (result.success) {
+      console.log(`✅ Day 0 Welcome email successfully delivered.`);
+    } else {
+      console.error(`❌ Day 0 Welcome email delivery failed:`, result.error);
+    }
+  } catch (e) {
+    console.error('Day 0 welcome email exception:', e.message);
+  }
 
-  // ── Day 0 — Instant (3 seconds after lead arrives) ──────────────────────────
-  const t0 = setTimeout(async () => {
-    const entry = followUpQueue.get(phone);
-    if (entry?.cancelled) return;
-    console.log(`📧 Follow-up Day 0 (Welcome) → ${lead.name} <${lead.email}>`);
-    try {
-      const { subject, html, plain } = buildDay0Email(lead, properties);
-      await sendEmail({ to: lead.email, subject, html, message: plain });
-    } catch (e) { console.error('Day 0 email error:', e.message); }
-  }, 3 * 1000);
-  timers.push(t0);
-
-  // ── Day 1 — 24 hours ────────────────────────────────────────────────────────
-  const t1 = setTimeout(async () => {
-    const entry = followUpQueue.get(phone);
-    if (entry?.cancelled) return;
-    console.log(`📧 Follow-up Day 1 → ${lead.name} <${lead.email}>`);
-    try {
-      const { subject, html, plain } = buildDay1Email(lead, properties);
-      await sendEmail({ to: lead.email, subject, html, message: plain });
-    } catch (e) { console.error('Day 1 email error:', e.message); }
-  }, 24 * 60 * 60 * 1000);
-  timers.push(t1);
-
-  // ── Day 2 — 48 hours ────────────────────────────────────────────────────────
-  const t2 = setTimeout(async () => {
-    const entry = followUpQueue.get(phone);
-    if (entry?.cancelled) return;
-    console.log(`📧 Follow-up Day 2 → ${lead.name} <${lead.email}>`);
-    try {
-      const { subject, html, plain } = buildDay2Email(lead, properties);
-      await sendEmail({ to: lead.email, subject, html, message: plain });
-    } catch (e) { console.error('Day 2 email error:', e.message); }
-  }, 48 * 60 * 60 * 1000);
-  timers.push(t2);
-
-  // ── Day 3 — 72 hours ────────────────────────────────────────────────────────
-  const t3 = setTimeout(async () => {
-    const entry = followUpQueue.get(phone);
-    if (entry?.cancelled) return;
-    console.log(`📧 Follow-up Day 3 (Final) → ${lead.name} <${lead.email}>`);
-    try {
-      const { subject, html, plain } = buildDay3Email(lead, properties);
-      await sendEmail({ to: lead.email, subject, html, message: plain });
-    } catch (e) { console.error('Day 3 email error:', e.message); }
-    // Auto-remove after final message
-    followUpQueue.delete(phone);
-  }, 72 * 60 * 60 * 1000);
-  timers.push(t3);
-
-  followUpQueue.set(phone, { lead, timers, cancelled: false });
-  console.log(`📅 Email follow-ups scheduled for ${lead.name} <${lead.email}> — Day 0 (instant), 1 (24h), 2 (48h), 3 (72h)`);
+  // 3. Register lead in MongoDB database to survive server restarts/cold-starts
+  try {
+    await FollowUp.findOneAndUpdate(
+      { phone },
+      {
+        name: lead.name || 'Client',
+        email: lead.email,
+        property_interest: lead.property_interest || '',
+        budget: lead.budget || '',
+        scheduled_at: new Date(),
+        status: 'active',
+        last_sent_day: 0
+      },
+      { upsert: true, new: true }
+    );
+    console.log(`📅 Database-backed email follow-ups registered for ${lead.name} <${lead.email}>`);
+  } catch (err) {
+    console.error('Failed to save follow-up to MongoDB:', err.message);
+  }
 }
 
 // ── CANCEL follow-ups (when lead books a visit) ───────────────────────────────
-function cancelFollowUps(phone) {
-  const entry = followUpQueue.get(phone);
-  if (!entry) return;
-  entry.timers.forEach(t => clearTimeout(t));
-  entry.cancelled = true;
-  followUpQueue.delete(phone);
-  console.log(`✅ Email follow-ups cancelled for ${phone} (lead booked or opted out)`);
+async function cancelFollowUps(phone) {
+  try {
+    await FollowUp.updateMany({ phone, status: 'active' }, { status: 'cancelled' });
+    console.log(`✅ Email follow-ups cancelled for ${phone} in database`);
+    return { success: true };
+  } catch (e) {
+    console.error(`Failed to cancel follow-ups for ${phone}:`, e.message);
+    return { success: false, error: e.message };
+  }
 }
 
 // ── GET status ────────────────────────────────────────────────────────────────
-function getFollowUpStatus(phone) {
-  const entry = followUpQueue.get(phone);
-  return {
-    scheduled: !!entry && !entry.cancelled,
-    lead:      entry?.lead?.name || null,
-    email:     entry?.lead?.email || null,
-  };
+async function getFollowUpStatus(phone) {
+  try {
+    const entry = await FollowUp.findOne({ phone, status: 'active' });
+    return {
+      scheduled: !!entry,
+      lead:      entry?.name || null,
+      email:     entry?.email || null,
+    };
+  } catch (e) {
+    return { scheduled: false, lead: null, email: null };
+  }
 }
 
-function getAllScheduled() {
-  const list = [];
-  followUpQueue.forEach((entry, phone) => {
-    if (!entry.cancelled) {
-      list.push({
-        phone,
-        name:     entry.lead?.name,
-        email:    entry.lead?.email,
-        interest: entry.lead?.property_interest,
-      });
+// ── GET all active scheduled ──────────────────────────────────────────────────
+async function getAllScheduled() {
+  try {
+    const list = await FollowUp.find({ status: 'active' });
+    return list.map(entry => ({
+      phone: entry.phone,
+      name:     entry.name,
+      email:    entry.email,
+      interest: entry.property_interest,
+    }));
+  } catch (e) {
+    console.error('Error in getAllScheduled:', e.message);
+    return [];
+  }
+}
+
+// ── AUTOMATED DRIP ENGINE (stateless & vercel-friendly) ──────────────────────
+async function processFollowUpDrip(properties = []) {
+  try {
+    const actives = await FollowUp.find({ status: 'active' });
+    if (actives.length === 0) return;
+
+    // Load properties from MongoDB DataSnapshot if empty
+    if (!properties || properties.length === 0) {
+      try {
+        const DataSnapshot = mongoose.models.DataSnapshot || mongoose.model('DataSnapshot');
+        const snap = await DataSnapshot.findOne({ email: AGENT_EMAIL });
+        if (snap?.data?.pe_properties) {
+          properties = typeof snap.data.pe_properties === 'string'
+            ? JSON.parse(snap.data.pe_properties)
+            : snap.data.pe_properties;
+        }
+      } catch (peErr) {
+        console.error('Drip Engine properties fetch error:', peErr.message);
+      }
     }
-  });
-  return list;
+
+    const now = new Date();
+    console.log(`⏰ [Drip Engine] Processing ${actives.length} active follow-ups at ${now.toISOString()}...`);
+
+    for (const f of actives) {
+      const elapsedHours = (now - new Date(f.scheduled_at)) / (1000 * 60 * 60);
+      const lead = {
+        phone: f.phone,
+        name: f.name,
+        email: f.email,
+        property_interest: f.property_interest,
+        budget: f.budget
+      };
+
+      console.log(`- Lead ${f.name} (${f.phone}) | Hours elapsed: ${elapsedHours.toFixed(2)} | Last sent day: ${f.last_sent_day}`);
+
+      // Day 1 (after 24 hours)
+      if (elapsedHours >= 24 && f.last_sent_day < 1) {
+        console.log(`📧 Sending Day 1 email to ${f.name} <${f.email}>...`);
+        const { subject, html, plain } = buildDay1Email(lead, properties);
+        const res = await sendEmail({ to: f.email, subject, html, message: plain });
+        if (res.success) {
+          f.last_sent_day = 1;
+          await f.save();
+          console.log(`✅ Day 1 email delivered successfully.`);
+        } else {
+          console.error(`❌ Day 1 email failed:`, res.error);
+        }
+      }
+      // Day 2 (after 48 hours)
+      else if (elapsedHours >= 48 && f.last_sent_day < 2) {
+        console.log(`📧 Sending Day 2 email to ${f.name} <${f.email}>...`);
+        const { subject, html, plain } = buildDay2Email(lead, properties);
+        const res = await sendEmail({ to: f.email, subject, html, message: plain });
+        if (res.success) {
+          f.last_sent_day = 2;
+          await f.save();
+          console.log(`✅ Day 2 email delivered successfully.`);
+        } else {
+          console.error(`❌ Day 2 email failed:`, res.error);
+        }
+      }
+      // Day 3 (after 72 hours)
+      else if (elapsedHours >= 72 && f.last_sent_day < 3) {
+        console.log(`📧 Sending Day 3 email to ${f.name} <${f.email}>...`);
+        const { subject, html, plain } = buildDay3Email(lead, properties);
+        const res = await sendEmail({ to: f.email, subject, html, message: plain });
+        if (res.success) {
+          f.last_sent_day = 3;
+          f.status = 'completed';
+          await f.save();
+          console.log(`✅ Day 3 email delivered successfully. Sequence completed.`);
+        } else {
+          console.error(`❌ Day 3 email failed:`, res.error);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error in processFollowUpDrip:', err.message);
+  }
 }
 
 module.exports = {
@@ -352,4 +432,9 @@ module.exports = {
   cancelFollowUps,
   getFollowUpStatus,
   getAllScheduled,
+  processFollowUpDrip,
+  buildDay0Email,
+  buildDay1Email,
+  buildDay2Email,
+  buildDay3Email
 };
