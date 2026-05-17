@@ -7310,7 +7310,7 @@
           <td data-label="Actions" onclick="event.stopPropagation()">
             <div style="display:flex; gap:10px; align-items:center">
               ${actionBtn}
-              ${l.email ? `<button class="btn btn-ghost btn-sm" style="width:32px; height:32px; padding:0; color:var(--accent)" onclick="event.stopPropagation();sendLeadEmail({email:'${l.email}',name:'${l.name}',property_interest:'${l.property_interest||''}',budget:'${l.budget||''}'},'followup')" title="Send Email"><i class="fas fa-envelope"></i></button>` : ''}
+              ${l.email ? `<button class="btn btn-ghost btn-sm" style="width:32px; height:32px; padding:0; color:var(--accent)" onclick="event.stopPropagation();sendLeadEmail('${l.id}','followup')" title="Send Email"><i class="fas fa-envelope"></i></button>` : ''}
               <button class="btn btn-danger btn-sm" style="width:32px; height:32px; padding:0" onclick="quickDeleteLead('${l.id}')"><i class="fas fa-trash-can"></i></button>
             </div>
           </td>
@@ -7462,7 +7462,7 @@
               </div>
               
               <div style="display:flex; gap:6px; align-items:center">
-                ${l.email ? `<button class="btn btn-ghost" style="width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:50%; color:var(--accent); border-color:rgba(197,160,89,0.2)" onclick="event.stopPropagation();sendLeadEmail({email:'${l.email}',name:'${l.name}',property_interest:'${l.property_interest||''}',budget:'${l.budget||''}'},'followup')" title="Send Email"><i class="fas fa-envelope"></i></button>` : ''}
+                ${l.email ? `<button class="btn btn-ghost" style="width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:50%; color:var(--accent); border-color:rgba(197,160,89,0.2)" onclick="event.stopPropagation();sendLeadEmail('${l.id}','followup')" title="Send Email"><i class="fas fa-envelope"></i></button>` : ''}
                 <div class="score ${displayScore >= 80 ? 'temp-hot' : displayScore >= 50 ? 'temp-warm' : 'temp-cold'}" style="font-size:10px; padding:0 8px; border-radius:14px; height:24px; display:flex; align-items:center; justify-content:center; white-space:nowrap; font-weight:700">${displayScore}%</div>
               </div>
             </div>
@@ -10327,7 +10327,11 @@ ${date}`;
     }
 
     // sendWhatsApp → replaced by sendLeadEmail
-    async function sendLeadEmail(lead, type = 'followup') {
+    async function sendLeadEmail(leadOrId, type = 'followup') {
+      let lead = leadOrId;
+      if (typeof leadOrId === 'string') {
+        lead = state.leads.find(l => l.id === leadOrId) || { id: leadOrId, name: 'there', email: leadOrId };
+      }
       if (!lead?.email) { toast('No email address for this lead.', true); return; }
       const agent = state.agent || {};
       const agentName = agent.name || 'Sarah Al-Rashid';
@@ -11168,11 +11172,11 @@ ${date}`;
       
       const el1 = document.getElementById('doc-lead-select'); if(el1) el1.innerHTML = '<option value="">Select Lead...</option>' + ls;
       const el2 = document.getElementById('tour-lead-select'); if(el2) el2.innerHTML = '<option value="">Select Lead...</option>' + ls;
-      const el3 = document.getElementById('wa-drip-lead-select'); if(el3) el3.innerHTML = '<option value="">Select Lead...</option>' + ls;
+      const el3 = document.getElementById('email-drip-lead-select'); if(el3) el3.innerHTML = '<option value="">Select Lead...</option>' + ls;
       const el4 = document.getElementById('tour-props-select'); if(el4) el4.innerHTML = ps;
       
       renderDocVault();
-      renderWADrip();
+      renderEmailDrip();
     }
 
     // Hook into tab switch
@@ -11259,13 +11263,16 @@ ${date}`;
       document.getElementById('tour-timeline').innerHTML = itineraryText;
       document.getElementById('tour-itinerary-preview').style.display = 'block';
       
-      // Save global so whatsapp btn can use it
+      // Save global so email/whatsapp btn can use it
+      window._currentTourLeadId = leadId;
       window._currentTourMapLink = `https://www.google.com/maps/dir/${mapQuery}`;
       window._currentTourLeadPhone = lead.phone;
     }
 
     async function sendTourEmail() {
-      const l = state.leads.find(x => x.id === currentLeadId);
+      const tourLeadId = window._currentTourLeadId;
+      if (!tourLeadId) return toast('Please generate an itinerary first.', true);
+      const l = state.leads.find(x => x.id === tourLeadId);
       if(!l || !l.email) return toast('Lead has no email address', true);
       
       const subject = `🚗 Your Custom Property Tour Itinerary — ${state.agent?.agency_name || 'Zorvo Realty'}`;
